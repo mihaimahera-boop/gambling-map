@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Gambling Map - Analiză risc</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+
+    *{
+      box-sizing:border-box;
+    }
+
+    body{
+      margin:0;
+      font-family:Arial,sans-serif;
+      background:#cfd6df;
+      color:#0f172a;
+      overflow:hidden;
+    }
+
+    .page{
+      width:100vw;
+      height:100vh;
+      padding:12px;
+    }
+
+    h1{
+      margin:0 0 12px;
+      font-size:28px;
+      color:#12386b;
+    }
+
+    .layout{
+      display:grid;
+      grid-template-columns:320px 1fr 320px;
+      gap:12px;
+      height:calc(100vh - 70px);
+    }
+
+    .sidebar,
+    .risk-panel{
+      background:#f3f4f6;
+      border-radius:16px;
+      padding:14px;
+      overflow-y:auto;
+    }
+
+    .sidebar h2,
+    .risk-panel h2{
+      margin-top:0;
+      font-size:20px;
+      color:#0f172a;
+    }
+
+    .sidebar h3,
+    .risk-panel h3{
+      margin-top:22px;
+      margin-bottom:10px;
+      font-size:16px;
+      color:#0f172a;
+      border-bottom:1px solid #cbd5e1;
+      padding-bottom:6px;
+    }
+
+    label{
+      display:block;
+      margin-top:12px;
+      margin-bottom:6px;
+      font-size:14px;
+      font-weight:600;
+    }
+
+    input,
+    select{
+      width:100%;
+      padding:10px;
+      border-radius:10px;
+      border:1px solid #cbd5e1;
+      font-size:14px;
+    }
+
+    button{
+      width:100%;
+      margin-top:10px;
+      padding:12px;
+      border:none;
+      border-radius:10px;
+      background:#163d77;
+      color:white;
+      font-size:14px;
+      font-weight:700;
+      cursor:pointer;
+    }
+
+    button:hover{
+      opacity:0.92;
+    }
+
+    button.secondary{
+      background:#64748b;
+    }
+
+    button.green{
+      background:#15803d;
+    }
+
+    button.red{
+      background:#b91c1c;
+    }
+
+    .hint{
+      font-size:13px;
+      color:#334155;
+      margin-top:10px;
+    }
+
+    .check{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-top:10px;
+      font-weight:500;
+    }
+
+    .check input{
+      width:auto;
+      margin:0;
+    }
+
+    .map-wrapper{
+      position:relative;
+      width:100%;
+      height:100%;
+      border-radius:18px;
+      overflow:hidden;
+      background:white;
+      box-shadow:0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    #map{
+      width:100%;
+      height:100%;
+    }
+
+    .card{
+      background:white;
+      border:1px solid #dbe4ee;
+      border-radius:12px;
+      padding:10px;
+      margin-top:10px;
+      font-size:14px;
+    }
+
+    .info-row{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      padding:7px 0;
+      border-bottom:1px solid #dbe4ee;
+      font-size:14px;
+    }
+
+    .info-row strong{
+      text-align:right;
+    }
+
+    .csv-note{
+      font-size:12px;
+      color:#475569;
+      margin-top:6px;
+    }
+
+    @media (max-width:1400px){
+
+      .layout{
+        grid-template-columns:280px 1fr 280px;
+      }
+
+    }
+
+    @media (max-width:1100px){
+
+      .layout{
+        grid-template-columns:1fr;
+        height:auto;
+      }
+
+      #map{
+        height:700px;
+      }
+
+      body{
+        overflow:auto;
+      }
+
+    }
+
+  </style>
+</head>
+
+<body>
+
+  <div class="page">
+
+    <h1>Gambling Map - Analiză risc locații</h1>
+
+    <div class="layout">
+
+      <!-- STÂNGA -->
+      <div class="sidebar">
+
+        <h2>Analiză locație</h2>
+
+        <label>Oraș / județ</label>
+        <input
+          id="cityInput"
+          type="text"
+          placeholder="Ex: timis, iasi, satu-mare"
+        />
+
+        <label>Adresă / locație</label>
+        <input
+          id="addressInput"
+          type="text"
+          placeholder="Ex: Piața Victoriei, București"
+        />
+
+        <button id="searchAddressBtn">
+          Caută adresa
+        </button>
+
+        <button
+          id="centerCityBtn"
+          class="secondary"
+        >
+          Centrează pe oraș / județ
+        </button>
+
+        <p class="hint">
+          Poți analiza și prin click direct pe hartă.
+        </p>
+
+        <h3>Setări analiză</h3>
+
+        <label>Rază analiză metri</label>
+        <input
+          id="analysisRadiusInput"
+          type="number"
+          value="1000"
+        />
+
+        <label>Distanță risc metri</label>
+        <input
+          id="restrictionDistanceInput"
+          type="number"
+          value="300"
+        />
+
+        <label>Mod calcul risc</label>
+
+        <select id="riskModeSelect">
+          <option value="mixed">Mixt</option>
+          <option value="nearest">Cea mai apropiată</option>
+          <option value="count">Număr restricții</option>
+        </select>
+
+        <h3>Filtre tip restricție</h3>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="filterGamblingInterzis"
+            checked
+          />
+          Gambling interzis
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="filterSloturiInterzise"
+            checked
+          />
+          Sloturi interzise
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="filterRestrictiiLocale"
+            checked
+          />
+          Restricții locale
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="filterSafe"
+            checked
+          />
+          Safe
+        </label>
+
+        <h3>Filtre hartă</h3>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="toggleRestrictions"
+            checked
+          />
+          Arată restricții
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="toggleSuperbet"
+            checked
+          />
+          Arată agenții Superbet
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="toggleRiskCircle"
+            checked
+          />
+          Arată raza de analiză
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            id="toggleRestrictionZones"
+            checked
+          />
+          Arată zone risc / interzise
+        </label>
+
+        <h3>Import locații candidate</h3>
+
+        <input
+          id="candidateCsvInput"
+          type="file"
+          accept=".csv"
+        />
+
+        <div class="csv-note">
+          Format CSV: name, city, lat, lng
+        </div>
+
+        <button
+          id="importCandidatesBtn"
+          class="green"
+        >
+          Importă CSV candidate
+        </button>
+
+        <button
+          id="exportImportedCandidatesBtn"
+          class="secondary"
+        >
+          Export CSV candidate analizate
+        </button>
+
+        <button
+          id="clearImportedCandidatesBtn"
+          class="red"
+        >
+          Șterge candidate importate
+        </button>
+
+      </div>
+
+      <!-- HARTA -->
+      <div class="map-wrapper">
+
+        <div id="map"></div>
+
+      </div>
+
+      <!-- DREAPTA -->
+      <div class="risk-panel">
+
+        <h2>Panou risc</h2>
+
+        <div
+          id="riskSummary"
+          class="card"
+        >
+          Selectează o locație sau dă click pe hartă pentru analiză.
+        </div>
+
+        <h3>Rezultat analiză</h3>
+
+        <div class="info-row">
+          <span>Verdict final</span>
+          <strong id="finalVerdict">-</strong>
+        </div>
+
+        <div class="info-row">
+          <span>Scor risc</span>
+          <strong id="riskScore">-</strong>
+        </div>
+
+        <div class="info-row">
+          <span>Distanță minimă restricție</span>
+          <strong id="nearestRestrictionDistance">-</strong>
+        </div>
+
+        <div class="info-row">
+          <span>Restricții în raza analizată</span>
+          <strong id="restrictionsCount">-</strong>
+        </div>
+
+        <div class="info-row">
+          <span>Agenții Superbet în zonă</span>
+          <strong id="superbetCount">-</strong>
+        </div>
+
+        <div class="info-row">
+          <span>Coordonate</span>
+          <strong id="currentCoords">-</strong>
+        </div>
+
+        <h3>Cea mai apropiată restricție</h3>
+
+        <div
+          id="nearestRestrictionBox"
+          class="card"
+        >
+          Nu există analiză încă.
+        </div>
+
+        <h3>Agenții Superbet apropiate</h3>
+
+        <div
+          id="nearbySuperbetList"
+          class="card"
+        >
+          Nu există analiză încă.
+        </div>
+
+        <h3>Restricții apropiate</h3>
+
+        <div
+          id="nearbyRestrictionsList"
+          class="card"
+        >
+          Nu există analiză încă.
+        </div>
+
+        <h3>Zone candidate generate</h3>
+
+        <div
+          id="candidateList"
+          class="card"
+        >
+          Nu există încă zone generate.
+        </div>
+
+        <h3>Candidate importate CSV</h3>
+
+        <div
+          id="importedCandidateList"
+          class="card"
+        >
+          Nu există candidate importate.
+        </div>
+
+        <h3>Log analiză</h3>
+
+        <div
+          id="analysisLog"
+          class="card"
+        >
+          Aici vor apărea ultimele verificări.
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+
+</body>
+</html>
