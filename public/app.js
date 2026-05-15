@@ -80,6 +80,12 @@ function formatDistance(meters) {
   if (meters < 1000) return `${Math.round(meters)} m`;
   return `${(meters / 1000).toFixed(2)} km`;
 }
+const HCL_FOLDER_URL = "https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing";
+
+function hclLink(hcl) {
+  if (!hcl) return "";
+  return `<a href="${HCL_FOLDER_URL}" target="_blank" class="hcl-link">${hcl}</a>`;
+}
 
 function getRestrictionColor(status) {
   if (status === "gambling_interzis") return "#dc2626";
@@ -312,7 +318,7 @@ function updateRiskPanel(lat, lng, analysis) {
         <strong>${analysis.nearestRestriction.city || "Restricție"}</strong><br>
         ${getRestrictionLabel(analysis.nearestRestriction.status)}<br>
         Distanță: ${formatDistance(analysis.nearestDistance)}<br>
-        ${analysis.nearestRestriction.hcl || ""}
+        ${hclLink(analysis.nearestRestriction.hcl)}
       `;
     } else {
       el("nearestRestrictionBox").innerHTML = "Nu există restricții în baza de date.";
@@ -340,7 +346,7 @@ function updateRiskPanel(lat, lng, analysis) {
             <strong>${item.city || "Restricție"}</strong><br>
             ${getRestrictionLabel(item.status)}<br>
             Distanță: ${formatDistance(item.distance)}<br>
-            ${item.hcl || ""}
+            ${hclLink(item.hcl)}
           </div>
         `).join("") || `<div class="card">Nu există restricții în raza analizată.</div>`;
   }
@@ -424,7 +430,7 @@ function updateRiskPanelFromRestriction(restriction, name = "Localitate", county
         <b style="color:${getRestrictionColor(restriction.status)}">
           ${getRestrictionLabel(restriction.status)}
         </b><br>
-        ${restriction.hcl || ""}
+        ${hclLink(restriction.hcl)}
       </div>
     `;
   }
@@ -440,7 +446,7 @@ function updateRiskPanelFromRestriction(restriction, name = "Localitate", county
         Click pe HCL: ${name}<br>
         Județ: ${county || "-"}<br>
         Status: ${getRestrictionLabel(restriction.status)}<br>
-        HCL: ${restriction.hcl || "-"}
+        HCL: ${hclLink(restriction.hcl) || "-"}
       </div>
     `;
   }
@@ -525,7 +531,11 @@ async function loadAllPolygons() {
               <b style="color:${getRestrictionColor(restriction.status)}">
                 ${getRestrictionLabel(restriction.status)}
               </b><br><br>
-              ${restriction.hcl || ""}
+              ${
+  restriction.hcl
+    ? `<a href="https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing" target="_blank" class="hcl-link">${restriction.hcl}</a>`
+    : ""
+}
             `);
 
             layer.on("click", () => {

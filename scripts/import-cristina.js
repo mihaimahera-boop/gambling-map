@@ -54,6 +54,7 @@ fs.createReadStream(INPUT_FILE)
         lng,
         status,
         hcl,
+        hclLink: row.hcl_link || row.HCL_LINK || "",
         annex,
         localTax,
         notes
