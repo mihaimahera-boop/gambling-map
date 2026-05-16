@@ -1,55 +1,39 @@
 const express = require("express");
-const fs = require("fs");
 const path = require("path");
+const fs = require("fs");
 const multer = require("multer");
 const csv = require("csv-parser");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const DATA_DIR = path.join(ROOT_DIR, "data");
-const PUBLIC_DATA_DIR = path.join(PUBLIC_DIR, "data");
+const IMPORTS_DIR = path.join(ROOT_DIR, "imports");
+const UPLOADS_DIR = path.join(ROOT_DIR, "uploads");
 
 const RESTRICTIONS_FILE = path.join(DATA_DIR, "gambling-restrictions.json");
 const SUPERBET_FILE = path.join(DATA_DIR, "superbet-locations.json");
 
-app.use(express.static(PUBLIC_DIR));
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(IMPORTS_DIR)) fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
 app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(PUBLIC_DIR));
 
-const upload = multer({
-  dest: path.join(ROOT_DIR, "uploads")
-});
-
-function ensureFolders() {
-  if (!fs.existsSync(path.join(ROOT_DIR, "uploads"))) {
-    fs.mkdirSync(path.join(ROOT_DIR, "uploads"));
-  }
-
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR);
-  }
-
-  if (!fs.existsSync(PUBLIC_DATA_DIR)) {
-    fs.mkdirSync(PUBLIC_DATA_DIR, { recursive: true });
-  }
-}
-
-ensureFolders();
+const upload = multer({ dest: UPLOADS_DIR });
 
 function readJsonSafe(filePath, fallback = []) {
   try {
     if (!fs.existsSync(filePath)) return fallback;
-
     const raw = fs.readFileSync(filePath, "utf8");
-
     if (!raw.trim()) return fallback;
-
     return JSON.parse(raw);
   } catch (err) {
-    console.log("Eroare citire JSON:", filePath);
-    console.log(err.message);
+    console.error("Eroare citire JSON:", filePath, err.message);
     return fallback;
   }
 }
@@ -58,8 +42,18 @@ function writeJsonSafe(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function toNumber(value) {
+  if (value === null || value === undefined) return null;
+
+  const text = String(value)
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "")
+    .trim();
+
+  if (!text) return null;
+
+  const nr = Number(text);
+  return Number.isFinite(nr) ? nr : null;
 }
 
 function normalizeText(text) {
@@ -70,247 +64,309 @@ function normalizeText(text) {
     .trim();
 }
 
-function slugify(text) {
-  return normalizeText(text)
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-async function geocode(query) {
-  return null;
-}
-
 function normalizeStatus(status) {
   const text = normalizeText(status);
 
-  if (text.includes("gambling") && text.includes("interzis")) {
+  if (
+    text.includes("to be banned") ||
+    text.includes("banned") ||
+    text.includes("interzis") ||
+    text.includes("interzise") ||
+    text.includes("gambling interzis")
+  ) {
+    if (text.includes("slot")) {
+      return "sloturi_interzise";
+    }
+
     return "gambling_interzis";
   }
 
-  if (text.includes("slot")) {
-    return "sloturi_interzise";
-  }
-
-  if (text.includes("restrict")) {
+  if (
+    text.includes("restrictii locale") ||
+    text.includes("restrictii") ||
+    text.includes("hcl")
+  ) {
     return "restrictii_locale";
   }
 
-  if (text.includes("safe")) {
+  if (
+    text.includes("safe") ||
+    text.includes("ok") ||
+    text.includes("permis")
+  ) {
     return "safe";
   }
 
-  return status || "unknown";
+  return "unknown";
 }
 
-app.get("/api/health", (req, res) => {
-  res.json({
-    ok: true,
-    message: "Server funcțional",
-    port: PORT
+function pick(row, keys) {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== "") {
+      return row[key];
+    }
+  }
+
+  return "";
+}
+
+function parseCsvFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+
+    fs.createReadStream(filePath)
+      .pipe(csv())
+      .on("data", row => rows.push(row))
+      .on("end", () => resolve(rows))
+      .on("error", reject);
   });
-});
+}
+
+function parseCristinaRows(rows) {
+  const restrictions = [];
+  const superbetLocations = [];
+
+  rows.forEach(row => {
+    const city = pick(row, [
+      "ORAS",
+      "Oras",
+      "oras",
+      "Oraș",
+      "Localitate",
+      "LOCALITATE",
+      "city",
+      "City"
+    ]);
+
+    const county = pick(row, [
+      "JUDET",
+      "Judet",
+      "judet",
+      "Județ",
+      "county",
+      "County"
+    ]);
+
+    const shopName = pick(row, [
+      "SHOP NAME",
+      "Shop Name",
+      "shopName",
+      "Nume agentie",
+      "Nume agenție",
+      "Agentie",
+      "Agenție"
+    ]);
+
+    const lat = toNumber(pick(row, [
+      "lat",
+      "Lat",
+      "LAT",
+      "Latitude",
+      "latitude",
+      "Latitudine"
+    ]));
+
+    const lng = toNumber(pick(row, [
+      "lng",
+      "Lng",
+      "LNG",
+      "lon",
+      "Lon",
+      "LON",
+      "Longitude",
+      "longitude",
+      "Longitudine"
+    ]));
+
+    const statusRaw = pick(row, [
+      "Status Oras",
+      "Status oraș",
+      "Status shop",
+      "STATUS",
+      "Status",
+      "status"
+    ]);
+
+    const hcl = pick(row, [
+      "HCL",
+      "Hcl",
+      "hcl",
+      "Hotarare",
+      "Hotărâre",
+      "hotarare"
+    ]);
+
+    const details = pick(row, [
+      "Observatii",
+      "Observații",
+      "observatii",
+      "Details",
+      "details"
+    ]);
+
+    const source = pick(row, [
+  "link",
+  "Link",
+  "LINK",
+  "source",
+  "Source",
+  "SOURCE",
+  "URL",
+  "Url",
+  "url",
+  "HCL LINK",
+  "HCL Link",
+  "Hcl Link",
+  "Link HCL",
+  "LINK HCL",
+  "link hcl",
+  "HCL URL",
+  "Url HCL",
+  "URL HCL",
+  "Document",
+  "DOCUMENT",
+  "Google Drive",
+  "Drive",
+  "Link document",
+  "LINK DOCUMENT"
+]);
+
+    const status = normalizeStatus(statusRaw);
+
+    if (city || lat || lng || hcl || status !== "unknown") {
+      restrictions.push({
+        city,
+        name: city,
+        county,
+        judet: county,
+        lat,
+        lng,
+        status,
+        title: shopName,
+        hcl,
+        details,
+        source
+      });
+    }
+
+    if (shopName || lat || lng) {
+      superbetLocations.push({
+        shopName,
+        name: shopName,
+        city,
+        county,
+        judet: county,
+        lat,
+        lng,
+        agencyType: pick(row, [
+          "TIP",
+          "Tip",
+          "type",
+          "Agency Type",
+          "agencyType"
+        ])
+      });
+    }
+  });
+
+  return {
+    restrictions: restrictions.filter(item => item.city || item.lat || item.lng),
+    superbetLocations: superbetLocations.filter(item => item.shopName || item.lat || item.lng)
+  };
+}
 
 app.get("/api/restrictions", (req, res) => {
-  const data = readJsonSafe(RESTRICTIONS_FILE, []);
-
-  res.json(data);
+  res.json(readJsonSafe(RESTRICTIONS_FILE, []));
 });
 
 app.get("/api/superbet-locations", (req, res) => {
-  const data = readJsonSafe(SUPERBET_FILE, []);
-
-  res.json(data);
+  res.json(readJsonSafe(SUPERBET_FILE, []));
 });
 
 app.get("/api/geojson-files", (req, res) => {
+  const publicDataDir = path.join(PUBLIC_DIR, "data");
+
+  if (!fs.existsSync(publicDataDir)) {
+    return res.json([]);
+  }
+
+  const files = fs
+    .readdirSync(publicDataDir)
+    .filter(file => file.toLowerCase().endsWith(".geojson"))
+    .map(file => ({
+      file,
+      url: `/data/${file}`
+    }));
+
+  res.json(files);
+});
+
+app.post("/api/upload-cristina-csv", upload.single("file"), async (req, res) => {
   try {
-    if (!fs.existsSync(PUBLIC_DATA_DIR)) {
-      return res.json([]);
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        message: "Nu a fost încărcat niciun fișier."
+      });
     }
 
-    const files = fs
-      .readdirSync(PUBLIC_DATA_DIR)
-      .filter(file => file.toLowerCase().endsWith(".geojson"))
-      .map(file => ({
-        file,
-        slug: file.replace(".geojson", ""),
-        url: `/data/${file}`,
-        sizeKb: Math.round(
-          fs.statSync(path.join(PUBLIC_DATA_DIR, file)).size / 1024
-        )
-      }))
-      .sort((a, b) => a.file.localeCompare(b.file));
+    const rows = await parseCsvFile(req.file.path);
+    const parsed = parseCristinaRows(rows);
 
-    res.json(files);
+    writeJsonSafe(RESTRICTIONS_FILE, parsed.restrictions);
+    writeJsonSafe(SUPERBET_FILE, parsed.superbetLocations);
+
+    fs.unlinkSync(req.file.path);
+
+    res.json({
+      ok: true,
+      restrictions: parsed.restrictions.length,
+      superbetLocations: parsed.superbetLocations.length
+    });
   } catch (err) {
+    console.error("Eroare import Cristina CSV:", err);
+
     res.status(500).json({
-      error: err.message
+      ok: false,
+      message: err.message
     });
   }
 });
 
-app.get("/api/geojson/:slug", (req, res) => {
+app.post("/api/upload-superbet-csv", upload.single("file"), async (req, res) => {
   try {
-    const slug = slugify(req.params.slug);
-
-    const possibleFiles = [
-      `${slug}.geojson`,
-      `${slug}-orase.geojson`,
-      `${slug}-localitati.geojson`,
-      `${slug}-judete.geojson`
-    ];
-
-    for (const file of possibleFiles) {
-      const fullPath = path.join(PUBLIC_DATA_DIR, file);
-
-      if (fs.existsSync(fullPath)) {
-        return res.sendFile(fullPath);
-      }
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        message: "Nu a fost încărcat niciun fișier."
+      });
     }
 
-    res.status(404).json({
-      error: "Fișier GeoJSON negăsit",
-      slug
+    const rows = await parseCsvFile(req.file.path);
+    const parsed = parseCristinaRows(rows);
+
+    writeJsonSafe(SUPERBET_FILE, parsed.superbetLocations);
+
+    fs.unlinkSync(req.file.path);
+
+    res.json({
+      ok: true,
+      superbetLocations: parsed.superbetLocations.length
     });
   } catch (err) {
+    console.error("Eroare import Superbet CSV:", err);
+
     res.status(500).json({
-      error: err.message
+      ok: false,
+      message: err.message
     });
   }
 });
 
-app.post("/api/upload-csv", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({
-      error: "Nu ai încărcat niciun fișier."
-    });
-  }
-
-  const rows = [];
-
-  fs.createReadStream(req.file.path)
-    .pipe(csv())
-    .on("data", row => rows.push(row))
-    .on("end", async () => {
-      try {
-        const results = [];
-
-        for (const row of rows) {
-          let lat = Number(row.lat || row.latitude);
-          let lng = Number(row.lng || row.lon || row.longitude);
-
-          if (!lat || !lng) {
-            const geo = await geocode(
-              `${row.city || row.name || ""}, ${row.county || ""}, România`
-            );
-
-            await sleep(1100);
-
-            if (!geo) continue;
-
-            lat = geo.lat;
-            lng = geo.lng;
-          }
-
-          results.push({
-            city: row.city || row.name || "",
-            county: row.county || "",
-            lat,
-            lng,
-            status: normalizeStatus(row.status || row.tip || ""),
-            title: row.title || "",
-            hcl: row.hcl || row.HCL || "",
-            details: row.details || row.detalii || "",
-            source: row.source || row.sursa || ""
-          });
-        }
-
-        writeJsonSafe(RESTRICTIONS_FILE, results);
-
-        fs.unlinkSync(req.file.path);
-
-        res.json({
-          success: true,
-          imported: results.length
-        });
-      } catch (err) {
-        console.log("EROARE IMPORT RESTRICȚII:");
-        console.log(err);
-
-        res.status(500).json({
-          error: err.message
-        });
-      }
-    });
-});
-
-app.post("/api/upload-superbet-csv", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({
-      error: "Nu ai încărcat niciun fișier."
-    });
-  }
-
-  const rows = [];
-
-  fs.createReadStream(req.file.path)
-    .pipe(csv())
-    .on("data", row => rows.push(row))
-    .on("end", async () => {
-      try {
-        const results = [];
-
-        for (const row of rows) {
-          let lat = Number(row.lat || row.latitude);
-          let lng = Number(row.lng || row.lon || row.longitude);
-
-          if (!lat || !lng) {
-            const geo = await geocode(
-              row.address
-                ? `${row.address}, ${row.city}, ${row.county}, România`
-                : `${row.city}, ${row.county}, România`
-            );
-
-            await sleep(1100);
-
-            if (!geo) continue;
-
-            lat = geo.lat;
-            lng = geo.lng;
-          }
-
-          results.push({
-            name: row.name || row.shopName || "Superbet",
-            shopName: row.shopName || row.name || "Superbet",
-            code: row.code || row.cod || "",
-            city: row.city || "",
-            county: row.county || "",
-            address: row.address || "",
-            agencyType: row.agencyType || row.type || "",
-            lat,
-            lng
-          });
-        }
-
-        writeJsonSafe(SUPERBET_FILE, results);
-
-        fs.unlinkSync(req.file.path);
-
-        res.json({
-          success: true,
-          imported: results.length
-        });
-      } catch (err) {
-        console.log("EROARE SUPERBET:");
-        console.log(err);
-
-        res.status(500).json({
-          error: err.message
-        });
-      }
-    });
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
 });
 
 app.listen(PORT, () => {
-  console.log(`Server pornit: http://localhost:${PORT}`);
+  console.log(`Server pornit pe http://localhost:${PORT}`);
 });

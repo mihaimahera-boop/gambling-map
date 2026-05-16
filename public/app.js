@@ -18,6 +18,9 @@ let polygonLayers = [];
 
 let currentAnalysis = null;
 
+const HCL_FOLDER_URL =
+  "https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing";
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -61,6 +64,16 @@ function getRiskMode() {
   return getValue("riskModeSelect", "mixed");
 }
 
+function toNumber(value) {
+  if (value === null || value === undefined) return null;
+  const nr = Number(String(value).replace(",", ".").trim());
+  return Number.isFinite(nr) ? nr : null;
+}
+
+function hasCoords(item) {
+  return Number.isFinite(toNumber(item?.lat)) && Number.isFinite(toNumber(item?.lng));
+}
+
 function distanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -80,11 +93,46 @@ function formatDistance(meters) {
   if (meters < 1000) return `${Math.round(meters)} m`;
   return `${(meters / 1000).toFixed(2)} km`;
 }
-const HCL_FOLDER_URL = "https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing";
 
-function hclLink(hcl) {
-  if (!hcl) return "";
-  return `<a href="${HCL_FOLDER_URL}" target="_blank" class="hcl-link">${hcl}</a>`;
+function hclLink(item) {
+  if (!item) return "";
+
+  const url =
+    item.hclLink ||
+    item.hcl_link ||
+    item.HCL_LINK ||
+    item.linkHcl ||
+    item.link ||
+    item.Link ||
+    item.LINK ||
+    item.source ||
+    item.url ||
+    item.URL ||
+    "";
+
+  const label =
+    item.hcl ||
+    item.HCL ||
+    "Deschide HCL";
+
+  if (!url) {
+    return `
+      <span style="color:#64748b;font-size:13px;">
+        Nu există link HCL pentru ${label}
+      </span>
+    `;
+  }
+
+  return `
+    <a
+      href="${url}"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="hcl-link"
+    >
+      📄 ${label}
+    </a>
+  `;
 }
 
 function getRestrictionColor(status) {
@@ -115,16 +163,16 @@ function matchesSelectedCity(item) {
   const selected = normalizeText(getSelectedCity());
   if (!selected) return true;
 
-  const city = normalizeText(
-    item.city ||
-    item.name ||
-    item.locality ||
-    item.county ||
-    item.judet ||
-    ""
-  );
+  const text = normalizeText([
+    item.city,
+    item.name,
+    item.locality,
+    item.county,
+    item.judet,
+    item.shopName
+  ].filter(Boolean).join(" "));
 
-  return city.includes(selected) || selected.includes(city);
+  return text.includes(selected) || selected.includes(text);
 }
 
 function clearLayers(list) {
@@ -133,13 +181,11 @@ function clearLayers(list) {
       map.removeLayer(layer);
     } catch {}
   });
-
   list.length = 0;
 }
 
 function getFeatureName(feature) {
   const p = feature.properties || {};
-
   return (
     p.name ||
     p.NAME ||
@@ -156,7 +202,6 @@ function getFeatureName(feature) {
 
 function getFeatureCounty(feature) {
   const p = feature.properties || {};
-
   return (
     p.county ||
     p.judet ||
@@ -209,8 +254,8 @@ function findRestrictionForName(name, county = "") {
 }
 
 function analyzeLocation(location) {
-  const lat = Number(location.lat);
-  const lng = Number(location.lng);
+  const lat = toNumber(location.lat);
+  const lng = toNumber(location.lng);
 
   const analysisRadius = getAnalysisRadius();
   const riskDistance = getRiskDistance();
@@ -221,15 +266,13 @@ function analyzeLocation(location) {
   const nearbyRestrictions = [];
 
   restrictions.forEach(restriction => {
-    if (!restriction.lat || !restriction.lng) return;
+    if (!hasCoords(restriction)) return;
     if (!shouldShowRestrictionStatus(restriction.status)) return;
 
-    const d = distanceMeters(
-      lat,
-      lng,
-      Number(restriction.lat),
-      Number(restriction.lng)
-    );
+    const rLat = toNumber(restriction.lat);
+    const rLng = toNumber(restriction.lng);
+
+    const d = distanceMeters(lat, lng, rLat, rLng);
 
     if (d < nearestDistance) {
       nearestDistance = d;
@@ -293,6 +336,17 @@ function analyzeLocation(location) {
   };
 }
 
+function getNearbySuperbet(lat, lng) {
+  return superbetLocations
+    .filter(hasCoords)
+    .map(item => ({
+      ...item,
+      distance: distanceMeters(lat, lng, toNumber(item.lat), toNumber(item.lng))
+    }))
+    .filter(item => item.distance <= getAnalysisRadius())
+    .sort((a, b) => a.distance - b.distance);
+}
+
 function updateRiskPanel(lat, lng, analysis) {
   currentAnalysis = { lat, lng, analysis };
 
@@ -318,7 +372,7 @@ function updateRiskPanel(lat, lng, analysis) {
         <strong>${analysis.nearestRestriction.city || "Restricție"}</strong><br>
         ${getRestrictionLabel(analysis.nearestRestriction.status)}<br>
         Distanță: ${formatDistance(analysis.nearestDistance)}<br>
-        ${hclLink(analysis.nearestRestriction.hcl)}
+        ${hclLink(analysis.nearestRestriction)}
       `;
     } else {
       el("nearestRestrictionBox").innerHTML = "Nu există restricții în baza de date.";
@@ -346,7 +400,7 @@ function updateRiskPanel(lat, lng, analysis) {
             <strong>${item.city || "Restricție"}</strong><br>
             ${getRestrictionLabel(item.status)}<br>
             Distanță: ${formatDistance(item.distance)}<br>
-            ${hclLink(item.hcl)}
+            ${hclLink(item)}
           </div>
         `).join("") || `<div class="card">Nu există restricții în raza analizată.</div>`;
   }
@@ -366,8 +420,8 @@ function updateRiskPanel(lat, lng, analysis) {
 function updateRiskPanelFromRestriction(restriction, name = "Localitate", county = "") {
   if (!restriction) return;
 
-  const lat = Number(restriction.lat);
-  const lng = Number(restriction.lng);
+  const lat = toNumber(restriction.lat);
+  const lng = toNumber(restriction.lng);
 
   if (el("finalVerdict")) {
     el("finalVerdict").textContent = getRestrictionLabel(restriction.status);
@@ -384,21 +438,15 @@ function updateRiskPanelFromRestriction(restriction, name = "Localitate", county
     el("riskScore").textContent = score === "-" ? "-" : `${score} / 100`;
   }
 
-  if (el("nearestRestrictionDistance")) {
-    el("nearestRestrictionDistance").textContent = "0 m";
-  }
-
-  if (el("restrictionsCount")) {
-    el("restrictionsCount").textContent = "1";
-  }
-
-  if (el("superbetCount")) {
-    el("superbetCount").textContent = "-";
-  }
+  if (el("nearestRestrictionDistance")) el("nearestRestrictionDistance").textContent = "0 m";
+  if (el("restrictionsCount")) el("restrictionsCount").textContent = "1";
+  if (el("superbetCount")) el("superbetCount").textContent = "-";
 
   if (el("currentCoords")) {
     el("currentCoords").textContent =
-      lat && lng ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : "-";
+      Number.isFinite(lat) && Number.isFinite(lng)
+        ? `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+        : "-";
   }
 
   if (el("riskSummary")) {
@@ -418,7 +466,7 @@ function updateRiskPanelFromRestriction(restriction, name = "Localitate", county
       <b style="color:${getRestrictionColor(restriction.status)}">
         ${getRestrictionLabel(restriction.status)}
       </b><br>
-      ${restriction.hcl || ""}
+      ${hclLink(restriction)}
     `;
   }
 
@@ -430,7 +478,7 @@ function updateRiskPanelFromRestriction(restriction, name = "Localitate", county
         <b style="color:${getRestrictionColor(restriction.status)}">
           ${getRestrictionLabel(restriction.status)}
         </b><br>
-        ${hclLink(restriction.hcl)}
+        ${hclLink(restriction)}
       </div>
     `;
   }
@@ -446,12 +494,12 @@ function updateRiskPanelFromRestriction(restriction, name = "Localitate", county
         Click pe HCL: ${name}<br>
         Județ: ${county || "-"}<br>
         Status: ${getRestrictionLabel(restriction.status)}<br>
-        HCL: ${hclLink(restriction.hcl) || "-"}
+        HCL: ${restriction.hcl || "-"}
       </div>
     `;
   }
 
-  if (lat && lng) {
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
     currentAnalysis = {
       lat,
       lng,
@@ -479,7 +527,7 @@ async function loadAllPolygons() {
 
   if (selected) {
     filteredFiles = files.filter(file =>
-      file.file.includes(selected)
+      normalizeText(file.file).includes(selected)
     );
   }
 
@@ -504,7 +552,6 @@ async function loadAllPolygons() {
         style: feature => {
           const name = getFeatureName(feature);
           const county = getFeatureCounty(feature);
-
           const restriction = findRestrictionForName(name, county);
 
           const status = restriction ? restriction.status : "unknown";
@@ -521,7 +568,6 @@ async function loadAllPolygons() {
         onEachFeature: (feature, layer) => {
           const name = getFeatureName(feature) || "Localitate";
           const county = getFeatureCounty(feature);
-
           const restriction = findRestrictionForName(name, county);
 
           if (restriction) {
@@ -531,17 +577,12 @@ async function loadAllPolygons() {
               <b style="color:${getRestrictionColor(restriction.status)}">
                 ${getRestrictionLabel(restriction.status)}
               </b><br><br>
-              ${
-  restriction.hcl
-    ? `<a href="https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing" target="_blank" class="hcl-link">${restriction.hcl}</a>`
-    : ""
-}
+              ${hclLink(restriction)}
             `);
 
             layer.on("click", () => {
               updateRiskPanelFromRestriction(restriction, name, county);
             });
-
           } else {
             layer.bindPopup(`
               <b>${name}</b><br>
@@ -585,7 +626,6 @@ async function loadAllPolygons() {
       }).addTo(map);
 
       polygonLayers.push(layer);
-
       console.log("Încărcat GeoJSON:", item.file);
     } catch (err) {
       console.error("Eroare GeoJSON:", item.file, err);
@@ -614,10 +654,10 @@ function drawRestrictions() {
     .filter(matchesSelectedCity)
     .filter(item => shouldShowRestrictionStatus(item.status))
     .forEach(item => {
-      if (!item.lat || !item.lng) return;
+      if (!hasCoords(item)) return;
 
-      const lat = Number(item.lat);
-      const lng = Number(item.lng);
+      const lat = toNumber(item.lat);
+      const lng = toNumber(item.lng);
       const color = getRestrictionColor(item.status);
 
       let layer;
@@ -641,13 +681,18 @@ function drawRestrictions() {
       }
 
       layer.bindPopup(`
-        <b>${item.city || "Restricție"}</b><br>
+        <b>${item.city || item.name || "Restricție"}</b><br>
+        ${item.county || item.judet || ""}<br>
         ${getRestrictionLabel(item.status)}<br>
-        ${item.hcl || ""}
+        ${hclLink(item)}
       `);
 
       layer.on("click", () => {
-        updateRiskPanelFromRestriction(item, item.city || "Restricție", item.county || item.judet || "");
+        updateRiskPanelFromRestriction(
+          item,
+          item.city || item.name || "Restricție",
+          item.county || item.judet || ""
+        );
       });
 
       layer.addTo(map);
@@ -666,18 +711,18 @@ function drawSuperbetLocations() {
       const location = item.location;
       const analysis = item.analysis;
 
-      if (!location.lat || !location.lng) return;
+      if (!hasCoords(location)) return;
 
-      const marker = L.circleMarker(
-        [Number(location.lat), Number(location.lng)],
-        {
-          radius: 6,
-          fillColor: analysis.color,
-          color: "#111827",
-          weight: 1.5,
-          fillOpacity: 0.95
-        }
-      );
+      const lat = toNumber(location.lat);
+      const lng = toNumber(location.lng);
+
+      const marker = L.circleMarker([lat, lng], {
+        radius: 6,
+        fillColor: analysis.color,
+        color: "#111827",
+        weight: 1.5,
+        fillOpacity: 0.95
+      });
 
       marker.bindPopup(`
         <b>${location.shopName || location.name || "Superbet"}</b><br>
@@ -690,23 +735,12 @@ function drawSuperbetLocations() {
       `);
 
       marker.on("click", () => {
-        updateRiskPanel(Number(location.lat), Number(location.lng), analysis);
+        updateRiskPanel(lat, lng, analysis);
       });
 
       marker.addTo(map);
       superbetLayers.push(marker);
     });
-}
-
-function getNearbySuperbet(lat, lng) {
-  return superbetLocations
-    .filter(item => item.lat && item.lng)
-    .map(item => ({
-      ...item,
-      distance: distanceMeters(lat, lng, Number(item.lat), Number(item.lng))
-    }))
-    .filter(item => item.distance <= getAnalysisRadius())
-    .sort((a, b) => a.distance - b.distance);
 }
 
 function analyzePoint(lat, lng) {
@@ -758,22 +792,27 @@ async function searchAddress() {
 
   const q = encodeURIComponent(`${address}, ${city}, România`);
 
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ro&q=${q}`
-  );
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ro&q=${q}`
+    );
 
-  const data = await res.json();
+    const data = await res.json();
 
-  if (!data.length) {
-    alert("Adresa nu a fost găsită.");
-    return;
+    if (!data.length) {
+      alert("Adresa nu a fost găsită.");
+      return;
+    }
+
+    const lat = Number(data[0].lat);
+    const lng = Number(data[0].lon);
+
+    map.setView([lat, lng], 15);
+    analyzePoint(lat, lng);
+  } catch (err) {
+    console.error(err);
+    alert("Eroare la căutarea adresei.");
   }
-
-  const lat = Number(data[0].lat);
-  const lng = Number(data[0].lon);
-
-  map.setView([lat, lng], 15);
-  analyzePoint(lat, lng);
 }
 
 async function centerOnCity() {
@@ -786,22 +825,28 @@ async function centerOnCity() {
 
   const q = encodeURIComponent(`${city}, România`);
 
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ro&q=${q}`
-  );
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ro&q=${q}`
+    );
 
-  const data = await res.json();
+    const data = await res.json();
 
-  if (!data.length) {
-    alert("Orașul / județul nu a fost găsit.");
-    return;
+    if (!data.length) {
+      alert("Orașul / județul nu a fost găsit.");
+      return;
+    }
+
+    const lat = Number(data[0].lat);
+    const lng = Number(data[0].lon);
+
+    map.setView([lat, lng], 11);
+    await loadAllPolygons();
+    refreshAll();
+  } catch (err) {
+    console.error(err);
+    alert("Eroare la centrarea pe oraș / județ.");
   }
-
-  const lat = Number(data[0].lat);
-  const lng = Number(data[0].lon);
-
-  map.setView([lat, lng], 11);
-  await loadAllPolygons();
 }
 
 function generateCandidateZones() {
@@ -883,12 +928,14 @@ function drawImportedCandidates() {
   clearLayers(importedCandidateLayers);
 
   importedCandidates.forEach(item => {
-    if (!item.lat || !item.lng) return;
+    if (!hasCoords(item)) return;
 
-    const analysis = analyzeLocation(item);
+    const lat = toNumber(item.lat);
+    const lng = toNumber(item.lng);
+    const analysis = analyzeLocation({ lat, lng });
     const color = analysis.color;
 
-    const marker = L.circleMarker([Number(item.lat), Number(item.lng)], {
+    const marker = L.circleMarker([lat, lng], {
       radius: 7,
       fillColor: color,
       color: "#111827",
@@ -906,7 +953,7 @@ function drawImportedCandidates() {
     `);
 
     marker.on("click", () => {
-      updateRiskPanel(Number(item.lat), Number(item.lng), analysis);
+      updateRiskPanel(lat, lng, analysis);
     });
 
     importedCandidateLayers.push(marker);
@@ -960,7 +1007,7 @@ function importCandidatesCsv() {
         lat: latIndex >= 0 ? Number(cols[latIndex]) : null,
         lng: lngIndex >= 0 ? Number(cols[lngIndex]) : null
       };
-    }).filter(item => item.lat && item.lng);
+    }).filter(hasCoords);
 
     drawImportedCandidates();
 
@@ -968,6 +1015,25 @@ function importCandidatesCsv() {
   };
 
   reader.readAsText(file);
+}
+
+function downloadCsv(rows, filename) {
+  const csv = rows
+    .map(row => row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([csv], {
+    type: "text/csv;charset=utf-8;"
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  link.click();
+
+  URL.revokeObjectURL(url);
 }
 
 function exportImportedCandidatesCsv() {
@@ -1002,25 +1068,6 @@ function clearImportedCandidates() {
   }
 }
 
-function downloadCsv(rows, filename) {
-  const csv = rows
-    .map(row => row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-
-  const blob = new Blob([csv], {
-    type: "text/csv;charset=utf-8;"
-  });
-
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = filename;
-  link.click();
-
-  URL.revokeObjectURL(url);
-}
-
 function exportCsv() {
   const rows = [
     ["shopName", "city", "lat", "lng", "verdict", "score", "nearestRestrictionDistance"]
@@ -1042,10 +1089,12 @@ function exportCsv() {
 }
 
 function refreshAll() {
-  analyzedLocations = superbetLocations.map(location => ({
-    location,
-    analysis: analyzeLocation(location)
-  }));
+  analyzedLocations = superbetLocations
+    .filter(hasCoords)
+    .map(location => ({
+      location,
+      analysis: analyzeLocation(location)
+    }));
 
   drawRestrictions();
   drawSuperbetLocations();
@@ -1058,6 +1107,7 @@ async function loadRestrictions() {
   try {
     const res = await fetch("/api/restrictions");
     restrictions = await res.json();
+    console.log("Restricții încărcate:", restrictions.length);
   } catch (err) {
     console.error("Nu pot încărca restricțiile:", err);
     restrictions = [];
@@ -1068,6 +1118,7 @@ async function loadSuperbetLocations() {
   try {
     const res = await fetch("/api/superbet-locations");
     superbetLocations = await res.json();
+    console.log("Agenții Superbet încărcate:", superbetLocations.length);
   } catch (err) {
     console.error("Nu pot încărca agențiile Superbet:", err);
     superbetLocations = [];
@@ -1094,7 +1145,6 @@ async function init() {
   });
 
   el("generateCandidatesBtn")?.addEventListener("click", generateCandidateZones);
-
   el("exportCsvBtn")?.addEventListener("click", exportCsv);
 
   el("importCandidatesBtn")?.addEventListener("click", importCandidatesCsv);

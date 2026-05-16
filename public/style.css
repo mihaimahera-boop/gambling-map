@@ -221,3 +221,23 @@ hr {
 .hcl-link:hover {
   color: #1d4ed8;
 }
+.hcl-link {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.hcl-link:hover {
+  color: #1d4ed8;
+}
+.hcl-link {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.hcl-link:hover {
+  color: #1d4ed8;
+}

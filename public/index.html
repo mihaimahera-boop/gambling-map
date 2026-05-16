@@ -179,6 +179,23 @@
       margin-top:6px;
     }
 
+    .hcl-link{
+      display:block;
+      text-align:center;
+      margin-top:10px;
+      padding:12px;
+      border-radius:10px;
+      background:#163d77;
+      color:white;
+      font-size:14px;
+      font-weight:700;
+      text-decoration:none;
+    }
+
+    .hcl-link:hover{
+      opacity:0.92;
+    }
+
     @media (max-width:1400px){
 
       .layout{
@@ -237,12 +254,15 @@
         <button id="searchAddressBtn">
           Caută adresa
         </button>
-<button
-  onclick="window.open('https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing', '_blank')"
-  class="action-btn"
->
-  📄 HCL
-</button>
+
+        <a
+          href="https://drive.google.com/drive/folders/1ua5jW6i-fpQTd05G4WxMjWusekKwMIRa?usp=sharing"
+          target="_blank"
+          class="hcl-link"
+        >
+          📄 HCL
+        </a>
+
         <button
           id="centerCityBtn"
           class="secondary"
